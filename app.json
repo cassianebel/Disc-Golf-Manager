@@ -1,0 +1,54 @@
+{
+  "expo": {
+    "name": "Disc Golf Manager",
+    "slug": "disc-golf-manager",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Disc Golf Manager to use your camera to photograph discs.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-ocr-kit",
+        {
+          "cameraPermission": "Allow Disc Golf Manager to use your camera to photograph discs."
+        }
+      ]
+    ],
+    "ios": {
+      "bundleIdentifier": "com.example.discgolfmanager",
+      "supportsTablet": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.example.discgolfmanager",
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.CAMERA"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "28121760-73bd-4f86-8ce1-521bf8726dd6"
+      }
+    }
+  }
+}
