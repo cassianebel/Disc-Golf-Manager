@@ -15,26 +15,10 @@ home_bag_view = HomeBagView()
 
 
 @app.get("/bags/{user_id}/discs")
-async def list_discs(user_id: str) -> JSONResponse:
-    try:
-        user_session_and_bag_identity.get_active_user(user_id)
-        user_session_and_bag_identity.get_bag_id_for_user(user_id)
-        home_bag_view.render_home_bag(user_id)
-    except NotImplementedError:
-        return JSONResponse(
-            status_code=501,
-            content={
-                "error": "not_implemented",
-                "message": "GET /bags/{user_id}/discs is not implemented.",
-            },
-        )
-    return JSONResponse(
-        status_code=501,
-        content={
-            "error": "not_implemented",
-            "message": "GET /bags/{user_id}/discs is not implemented.",
-        },
-    )
+async def list_discs(user_id: str) -> list[dict[str, object]]:
+    active_user = user_session_and_bag_identity.get_active_user(user_id)
+    user_session_and_bag_identity.get_bag_id_for_user(active_user)
+    return home_bag_view.render_home_bag(active_user)
 
 
 @app.post("/bags/{user_id}/discs")
