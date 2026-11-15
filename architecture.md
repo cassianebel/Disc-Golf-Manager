@@ -9,7 +9,7 @@ This system is a mobile-first application for managing a single user's disc golf
 | User session and bag identity | Own the authenticated user boundary and the bag associated with that user so every add/edit operation is scoped to the right collection. This is needed by FR-001, FR-002, FR-003 and the logged-in preconditions in Scenario-001 and Scenario-002. | Bag repository |
 | Photo capture and OCR intake | Capture the disc photo and derive a provisional brand/name candidate from image text. This is needed by Scenario-001 and the goal to add a disc via photo and OCR. | User session and bag identity |
 | TryDiscs catalog lookup | Search the disc catalog for likely matches based on the OCR output and return candidate records for the user to confirm. This is needed by Scenario-001 and the goal to use trydiscs. | Photo capture and OCR intake |
-| Disc form editor | Present one full disc record as editable inputs and accept the user’s final confirmation before save. This is needed by FR-002 and Scenario-001/002. | Bag repository, TryDiscs catalog lookup |
+| Disc form editor | Build editable form data from either a selected catalog match or the existing disc record supplied by the caller, and accept the user’s final confirmation before save. This is needed by FR-002 and Scenario-001/002. | Bag repository, TryDiscs catalog lookup |
 | Bag repository | Store and retrieve the user's bag and all disc records, including updates to field values and notes. This is needed by FR-001, FR-002, and FR-003. | User session and bag identity |
 | Home bag view | Render the user's bag as the main list and route the user to the add-disc or edit-disc flows. This is needed by FR-003 and Scenario-002. | Bag repository |
 

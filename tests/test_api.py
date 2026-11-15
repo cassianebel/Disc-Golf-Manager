@@ -10,6 +10,8 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
+from server.modules.disc_form_editor import DiscFormEditor
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -98,12 +100,63 @@ class ApiSkeletonTests(unittest.TestCase):
         self.assertIsInstance(result, dict)
 
     def test_update_disc_returns_updated_record(self) -> None:
+        added_disc = self.request_json(
+            "POST",
+            "/bags/user-123/discs",
+            {"brand": "Innova", "name": "Destroyer"},
+        )
+        self.assertIsInstance(added_disc, dict)
+        disc_id = added_disc.get("disc_id")
+        self.assertIsInstance(disc_id, str)
+
         result = self.request_json(
             "PUT",
-            "/bags/user-123/discs/disc-1",
+            f"/bags/user-123/discs/{disc_id}",
             {"condition": "new"},
         )
         self.assertIsInstance(result, dict)
+        self.assertEqual(result["condition"], "new")
+        self.assertEqual(result["disc_id"], disc_id)
+
+
+class DiscFormEditorTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.editor = DiscFormEditor()
+
+    def test_build_disc_form_uses_catalog_match_for_new_disc(self) -> None:
+        catalog_match: dict[str, object] = {
+            "brand_name": "Innova",
+            "disc_name": "Destroyer",
+            "speed": 12,
+        }
+
+        result = self.editor.build_disc_form(None, catalog_match)
+
+        self.assertEqual(result, catalog_match)
+        self.assertIsNot(result, catalog_match)
+
+    def test_build_disc_form_uses_existing_record_for_edit(self) -> None:
+        existing_record: dict[str, object] = {
+            "disc_id": "existing-id",
+            "brand_name": "Innova",
+            "disc_name": "Destroyer",
+            "notes": "My trusted distance driver",
+        }
+        catalog_match: dict[str, object] = {
+            "brand_name": "Innova",
+            "disc_name": "Destroyer",
+            "speed": 12,
+        }
+
+        result = self.editor.build_disc_form(
+            "existing-id",
+            catalog_match,
+            existing_record,
+        )
+
+        self.assertEqual(result, existing_record)
+        self.assertIsNot(result, existing_record)
+        self.assertNotIn("speed", result)
 
 
 if __name__ == "__main__":
