@@ -38,25 +38,9 @@ async def list_discs(user_id: str) -> JSONResponse:
 
 
 @app.post("/bags/{user_id}/discs")
-async def add_disc(user_id: str, disc: dict[str, object]) -> JSONResponse:
-    try:
-        bag_id = user_session_and_bag_identity.get_bag_id_for_user(user_id)
-        bag_repository.add_disc_to_bag(bag_id, disc)
-    except NotImplementedError:
-        return JSONResponse(
-            status_code=501,
-            content={
-                "error": "not_implemented",
-                "message": "POST /bags/{user_id}/discs is not implemented.",
-            },
-        )
-    return JSONResponse(
-        status_code=501,
-        content={
-            "error": "not_implemented",
-            "message": "POST /bags/{user_id}/discs is not implemented.",
-        },
-    )
+async def add_disc(user_id: str, disc: dict[str, object]) -> dict[str, object]:
+    bag_id = user_session_and_bag_identity.get_bag_id_for_user(user_id)
+    return bag_repository.add_disc_to_bag(bag_id, disc)
 
 
 @app.put("/bags/{user_id}/discs/{disc_id}")

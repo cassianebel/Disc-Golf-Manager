@@ -8,6 +8,4 @@ class UserSessionAndBagIdentity:
         )
 
     def get_bag_id_for_user(self, user_id: str) -> str:
-        raise NotImplementedError(
-            "UserSessionAndBagIdentity.get_bag_id_for_user is not implemented."
-        )
+        return user_id
