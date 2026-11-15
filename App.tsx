@@ -2,11 +2,14 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { recognizeText } from "expo-ocr-kit";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState, type ElementRef } from "react";
 import {
   ActivityIndicator,
   Image,
   Linking,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -249,6 +252,11 @@ function CameraScreen({
 }
 
 export default function App() {
+  const scrollViewRef = useRef<ElementRef<typeof ScrollView>>(null);
+  const searchInputRef = useRef<ElementRef<typeof TextInput>>(null);
+  const scrollOffset = useRef(0);
+  const searchInputFocused = useRef(false);
+  const ignoreFocusSelectAll = useRef(false);
   const [showCamera, setShowCamera] = useState(false);
   const [lastPhotoUri, setLastPhotoUri] = useState<string | null>(null);
   const [lastRecognizedText, setLastRecognizedText] = useState<string | null>(
@@ -257,6 +265,32 @@ export default function App() {
   const [recognizedWords, setRecognizedWords] = useState<string[]>([]);
   const [selectedWords, setSelectedWords] = useState<boolean[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [querySelection, setQuerySelection] = useState<
+    { start: number; end: number } | undefined
+  >(undefined);
+
+  useEffect(() => {
+    const subscription = Keyboard.addListener("keyboardDidShow", (event) => {
+      if (!searchInputFocused.current) {
+        return;
+      }
+
+      requestAnimationFrame(() => {
+        searchInputRef.current?.measureInWindow((_x, y, _width, height) => {
+          const keyboardTop = event.endCoordinates.screenY;
+          const obscuredAmount = y + height + 16 - keyboardTop;
+          if (obscuredAmount > 0) {
+            scrollViewRef.current?.scrollTo({
+              y: scrollOffset.current + obscuredAmount,
+              animated: true,
+            });
+          }
+        });
+      });
+    });
+
+    return () => subscription.remove();
+  }, []);
 
   function handleTextRecognized(text: string) {
     const words = text.trim() ? text.trim().split(/\s+/) : [];
@@ -299,98 +333,136 @@ export default function App() {
   return (
     <SafeAreaView style={styles.homeScreen}>
       <StatusBar style="dark" />
-      <ScrollView
-        contentContainerStyle={styles.homeScrollContent}
-        keyboardShouldPersistTaps="handled"
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={styles.keyboardAvoidingView}
       >
-        <View style={styles.homeContent}>
-          <View style={styles.brandMark}>
-            <Text style={styles.brandMarkText}>DG</Text>
-          </View>
-          <Text style={styles.eyebrow}>YOUR DISC GOLF COLLECTION</Text>
-          <Text style={styles.title}>Keep your discs{"\n"}in the loop.</Text>
-          <Text style={styles.subtitle}>
-            Add a disc to start building your collection.
-          </Text>
-
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setShowCamera(true)}
-            style={({ pressed }) => [
-              styles.addButton,
-              pressed && styles.pressedButton,
-            ]}
-          >
-            <Text style={styles.addButtonLabel}>+ add disc</Text>
-          </Pressable>
-
-          {lastPhotoUri ? (
-            <View style={styles.latestPhotoCard}>
-              <Image source={{ uri: lastPhotoUri }} style={styles.thumbnail} />
-              <View style={styles.latestPhotoContent}>
-                <Text numberOfLines={1} style={styles.latestPhotoTitle}>
-                  {lastRecognizedText ? "Recognized text" : "No text found"}
-                </Text>
-                <Text numberOfLines={3} style={styles.latestPhotoSubtitle}>
-                  {lastRecognizedText ||
-                    "Try taking a clearer photo of the disc."}
-                </Text>
-              </View>
+        <ScrollView
+          contentContainerStyle={styles.homeScrollContent}
+          keyboardShouldPersistTaps="handled"
+          onScroll={(event) => {
+            scrollOffset.current = event.nativeEvent.contentOffset.y;
+          }}
+          scrollEventThrottle={16}
+          ref={scrollViewRef}
+        >
+          <View style={styles.homeContent}>
+            <View style={styles.brandMark}>
+              <Text style={styles.brandMarkText}>DG</Text>
             </View>
-          ) : null}
+            <Text style={styles.eyebrow}>YOUR DISC GOLF COLLECTION</Text>
+            <Text style={styles.title}>Keep your discs{"\n"}in the loop.</Text>
+            <Text style={styles.subtitle}>
+              Add a disc to start building your collection.
+            </Text>
 
-          {recognizedWords.length > 0 ? (
-            <View style={styles.queryCard}>
-              <Text style={styles.queryTitle}>Choose Search Terms</Text>
-              <Text style={styles.queryInstructions}>
-                Words start unselected. Toggling a word rebuilds the query and
-                replaces any manual edits.
-              </Text>
-              <View style={styles.wordList}>
-                {recognizedWords.map((word, index) => {
-                  const selected = selectedWords[index] ?? false;
-                  return (
-                    <Pressable
-                      key={`${index}-${word}`}
-                      accessibilityRole="button"
-                      accessibilityLabel={`${word}, ${selected ? "selected" : "not selected"}`}
-                      accessibilityState={{ selected }}
-                      onPress={() => toggleRecognizedWord(index)}
-                      style={[
-                        styles.wordChip,
-                        selected && styles.wordChipSelected,
-                      ]}
-                    >
-                      <Text
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setShowCamera(true)}
+              style={({ pressed }) => [
+                styles.addButton,
+                pressed && styles.pressedButton,
+              ]}
+            >
+              <Text style={styles.addButtonLabel}>+ add disc</Text>
+            </Pressable>
+
+            {lastPhotoUri ? (
+              <View style={styles.latestPhotoCard}>
+                <Image
+                  source={{ uri: lastPhotoUri }}
+                  style={styles.thumbnail}
+                />
+                <View style={styles.latestPhotoContent}>
+                  <Text numberOfLines={1} style={styles.latestPhotoTitle}>
+                    {lastRecognizedText ? "Recognized text" : "No text found"}
+                  </Text>
+                  <Text numberOfLines={3} style={styles.latestPhotoSubtitle}>
+                    {lastRecognizedText ||
+                      "Try taking a clearer photo of the disc."}
+                  </Text>
+                </View>
+              </View>
+            ) : null}
+
+            {recognizedWords.length > 0 ? (
+              <View style={styles.queryCard}>
+                <Text style={styles.queryTitle}>Choose Search Terms</Text>
+                <Text style={styles.queryInstructions}>
+                  Words start unselected. Toggling a word rebuilds the query and
+                  replaces any manual edits.
+                </Text>
+                <View style={styles.wordList}>
+                  {recognizedWords.map((word, index) => {
+                    const selected = selectedWords[index] ?? false;
+                    return (
+                      <Pressable
+                        key={`${index}-${word}`}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${word}, ${selected ? "selected" : "not selected"}`}
+                        accessibilityState={{ selected }}
+                        onPress={() => toggleRecognizedWord(index)}
                         style={[
-                          styles.wordChipText,
-                          selected && styles.wordChipTextSelected,
+                          styles.wordChip,
+                          selected && styles.wordChipSelected,
                         ]}
                       >
-                        {word}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
+                        <Text
+                          style={[
+                            styles.wordChipText,
+                            selected && styles.wordChipTextSelected,
+                          ]}
+                        >
+                          {word}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <Text style={styles.queryLabel}>Finalize Search Terms</Text>
+                <Text style={styles.queryInstructions}>
+                  Edit any misspelled words or add words to your search terms as
+                  needed.
+                </Text>
+                <TextInput
+                  accessibilityLabel="Edit TryDiscs search terms"
+                  onChangeText={setSearchQuery}
+                  onBlur={() => {
+                    searchInputFocused.current = false;
+                    ignoreFocusSelectAll.current = false;
+                  }}
+                  onFocus={() => {
+                    searchInputFocused.current = true;
+                    ignoreFocusSelectAll.current = true;
+                    const end = searchQuery.length;
+                    setQuerySelection({ start: end, end });
+                  }}
+                  onSelectionChange={(event) => {
+                    const selection = event.nativeEvent.selection;
+                    if (
+                      ignoreFocusSelectAll.current &&
+                      selection.start === 0 &&
+                      selection.end === searchQuery.length &&
+                      searchQuery.length > 0
+                    ) {
+                      return;
+                    }
+                    ignoreFocusSelectAll.current = false;
+                    setQuerySelection(selection);
+                  }}
+                  placeholder="Select words or enter search text"
+                  placeholderTextColor="#829087"
+                  ref={searchInputRef}
+                  selectTextOnFocus={false}
+                  selection={querySelection}
+                  style={styles.queryInput}
+                  value={searchQuery}
+                />
               </View>
-              <Text style={styles.queryLabel}>Finalize Search Terms</Text>
-              <Text style={styles.queryInstructions}>
-                Edit any misspelled words or add words to your search terms as
-                needed.
-              </Text>
-              <TextInput
-                accessibilityLabel="Edit TryDiscs search terms"
-                multiline
-                onChangeText={setSearchQuery}
-                placeholder="Select words or enter search text"
-                placeholderTextColor="#829087"
-                style={styles.queryInput}
-                value={searchQuery}
-              />
-            </View>
-          ) : null}
-        </View>
-      </ScrollView>
+            ) : null}
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -403,6 +475,9 @@ const styles = StyleSheet.create({
   homeScreen: {
     flex: 1,
     backgroundColor: "#f7f8f3",
+  },
+  keyboardAvoidingView: {
+    flex: 1,
   },
   homeScrollContent: {
     flexGrow: 1,
@@ -505,7 +580,7 @@ const styles = StyleSheet.create({
     color: "#64746a",
     fontSize: 13,
     lineHeight: 19,
-    marginTop: 6,
+    marginTop: 3,
   },
   wordList: {
     flexDirection: "row",
@@ -537,13 +612,11 @@ const styles = StyleSheet.create({
   },
   queryLabel: {
     color: "#183528",
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: "600",
-    marginTop: 16,
-    marginBottom: 8,
+    marginTop: 20,
   },
   queryInput: {
-    minHeight: 76,
     borderWidth: 1,
     borderColor: "#cbd8ce",
     borderRadius: 12,
