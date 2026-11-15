@@ -5,9 +5,7 @@ class BagRepository:
     _bags: dict[str, list[dict[str, object]]] = {}
 
     def list_disc_records(self, bag_id: str) -> list[dict[str, object]]:
-        raise NotImplementedError(
-            "BagRepository.list_disc_records is not implemented."
-        )
+        return self._bags.get(bag_id, [])
 
     def add_disc_to_bag(
         self, bag_id: str, disc_record: dict[str, object]
