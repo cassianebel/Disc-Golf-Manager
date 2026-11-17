@@ -81,11 +81,11 @@ The current tests exercise route and form-result shapes; they do not yet cover t
 - **Goal:** Search TryDiscs using the exact query submitted by the user and return possible catalog records with attribution.
 - **Spec sources:** Goals; Acceptance Criteria (Scenario-001).
 - **Criteria:** None completed; catalog lookup is part of Scenario-001, which is completed in Slice 6.
-- **Tests that should turn green:** None in the current suite. Add API tests for successful query results and upstream failure handling before implementation.
-- **Skeleton to fill in:** `TryDiscsCatalogLookup.find_candidate_matches(query: str)`; add the documented `GET /catalog/discs?q={query}` route. The API key is injected server-side, not embedded in the mobile client.
+- **Tests that should turn green:** `test_lookup_sends_exact_query_and_returns_matches_with_attribution`, `test_lookup_rejects_empty_query_without_request`, `test_lookup_reports_missing_api_key`, `test_lookup_surfaces_upstream_failure`, `test_catalog_route_passes_query_to_lookup`.
+- **Skeleton to fill in:** `TryDiscsCatalogLookup.find_candidate_matches(query: str)`; `GET /catalog/discs?q={query}`. The server reads `TRYDISCS_API_KEY` from its environment; the key is not embedded in the mobile client.
 - **Depends on:** Slice 4.
-- **Done when:** New tests verify the exact submitted query is sent, matches and attribution are returned, and upstream failures are not reported as empty successful results; no previously passing test fails.
-- **Status:** not started.
+- **Done when:** The listed tests pass; blank queries return HTTP 400, missing key configuration returns HTTP 503, and upstream failures return HTTP 502 rather than an empty success; no previously passing test fails.
+- **Status:** done.
 
 ### 6. Confirmed photo-to-bag flow
 
@@ -108,14 +108,14 @@ The current tests exercise route and form-result shapes; they do not yet cover t
 ## Design questions
 
 - If the user edits the query and then toggles OCR tokens, should the selection rebuild/replace their edited text, or should manual edits remain untouched?
-- What should happen when the final query is empty or TryDiscs returns no matches?
+- No-match behavior remains unspecified. Slice 5 returns a successful empty match list only when TryDiscs successfully returns one; behavior after that remains part of Slice 6.
 - The existing photo/OCR implementation is in the Expo client, while `server/modules/photo_capture_and_ocr_intake.py` is a Python stub. Should that unused server stub be removed or explicitly retained as non-runtime documentation?
 - The architecture and spec use unnumbered headings; this plan cites heading names and the existing FR/Scenario identifiers rather than inventing section numbers.
 
 ## Coverage check
 
 - Acceptance criteria assigned exactly once: Scenario-001 (Slice 6), Scenario-002 (Slice 3).
-- Current test names assigned exactly once: `test_add_disc_returns_saved_record` (Slice 1), `test_list_discs_returns_bag` (Slice 2), `test_update_disc_returns_updated_record` and `test_build_disc_form_uses_existing_record_for_edit` (Slice 3), `test_build_disc_form_uses_catalog_match_for_new_disc` (Slice 6).
+- Current test names assigned exactly once: `test_add_disc_returns_saved_record` (Slice 1), `test_list_discs_returns_bag` (Slice 2), `test_update_disc_returns_updated_record` and `test_build_disc_form_uses_existing_record_for_edit` (Slice 3), `test_lookup_sends_exact_query_and_returns_matches_with_attribution`, `test_lookup_rejects_empty_query_without_request`, `test_lookup_reports_missing_api_key`, `test_lookup_surfaces_upstream_failure`, and `test_catalog_route_passes_query_to_lookup` (Slice 5), `test_build_disc_form_uses_catalog_match_for_new_disc` (Slice 6).
 - Current failing tests assigned exactly once: none.
 - Functions with no implementation slice: `HomeBagView.route_to_add_disc` remains deferred because no UI navigation target has been specified.
 - REST routes with no implementation slice: none; `GET /catalog/discs?q={query}` is assigned to Slice 5.

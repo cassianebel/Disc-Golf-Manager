@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException
 from server.modules.bag_repository import BagRepository
 from server.modules.disc_form_editor import DiscFormEditor
 from server.modules.home_bag_view import HomeBagView
+from server.modules.trydiscs_catalog_lookup import TryDiscsCatalogLookup
 from server.modules.user_session_and_bag_identity import UserSessionAndBagIdentity
 
 app = FastAPI(title="Disc Golf Disc Manager API", version="0.1.0")
@@ -13,6 +14,12 @@ user_session_and_bag_identity = UserSessionAndBagIdentity()
 bag_repository = BagRepository()
 disc_form_editor = DiscFormEditor()
 home_bag_view = HomeBagView()
+trydiscs_catalog_lookup = TryDiscsCatalogLookup()
+
+
+@app.get("/catalog/discs")
+async def find_catalog_discs(q: str) -> dict[str, object]:
+    return trydiscs_catalog_lookup.find_candidate_matches(q)
 
 
 @app.get("/bags/{user_id}/discs")

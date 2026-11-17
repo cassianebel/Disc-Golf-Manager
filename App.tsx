@@ -24,6 +24,15 @@ type CameraScreenProps = {
   onTextRecognized: (text: string) => void;
 };
 
+type CatalogSearchResponse = {
+  matches: Record<string, unknown>[];
+  attribution: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function CameraScreen({
   onCancel,
   onPhotoCaptured,
@@ -265,9 +274,14 @@ export default function App() {
   const [recognizedWords, setRecognizedWords] = useState<string[]>([]);
   const [selectedWords, setSelectedWords] = useState<boolean[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchReady, setSearchReady] = useState(false);
   const [querySelection, setQuerySelection] = useState<
     { start: number; end: number } | undefined
   >(undefined);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [catalogResults, setCatalogResults] =
+    useState<CatalogSearchResponse | null>(null);
 
   useEffect(() => {
     const subscription = Keyboard.addListener("keyboardDidShow", (event) => {
@@ -298,6 +312,9 @@ export default function App() {
     setRecognizedWords(words);
     setSelectedWords(words.map(() => false));
     setSearchQuery("");
+    setSearchReady(true);
+    setSearchError(null);
+    setCatalogResults(null);
   }
 
   function toggleRecognizedWord(index: number) {
@@ -310,8 +327,81 @@ export default function App() {
           .filter((_, wordIndex) => nextSelection[wordIndex])
           .join(" "),
       );
+      setSearchError(null);
+      setCatalogResults(null);
       return nextSelection;
     });
+  }
+
+  function cancelSearch() {
+    Keyboard.dismiss();
+    searchInputRef.current?.blur();
+    searchInputFocused.current = false;
+    ignoreFocusSelectAll.current = false;
+    setSearchReady(false);
+  }
+
+  async function submitCatalogSearch() {
+    const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
+    if (!apiBaseUrl) {
+      setSearchError(
+        "The catalog server URL is not configured. Set EXPO_PUBLIC_API_BASE_URL and restart the app.",
+      );
+      return;
+    }
+
+    if (!searchQuery.trim()) {
+      setSearchError("Select or enter at least one search term.");
+      return;
+    }
+
+    setIsSearching(true);
+    setSearchError(null);
+    setCatalogResults(null);
+
+    try {
+      const baseUrl = apiBaseUrl.replace(/\/+$/, "");
+      const response = await fetch(
+        `${baseUrl}/catalog/discs?q=${encodeURIComponent(searchQuery)}`,
+      );
+      const responseBody: unknown = await response.json();
+
+      if (!response.ok) {
+        const detail =
+          typeof responseBody === "object" &&
+          responseBody !== null &&
+          "detail" in responseBody &&
+          typeof responseBody.detail === "string"
+            ? responseBody.detail
+            : `Catalog search failed with HTTP ${response.status}.`;
+        throw new Error(detail);
+      }
+
+      if (
+        typeof responseBody !== "object" ||
+        responseBody === null ||
+        !("matches" in responseBody) ||
+        !Array.isArray(responseBody.matches) ||
+        !responseBody.matches.every(isRecord) ||
+        !("attribution" in responseBody) ||
+        typeof responseBody.attribution !== "string"
+      ) {
+        throw new Error("The catalog server returned an invalid response.");
+      }
+
+      setCatalogResults({
+        matches: responseBody.matches,
+        attribution: responseBody.attribution,
+      });
+    } catch (error) {
+      setSearchError(
+        error instanceof Error
+          ? error.message
+          : "Catalog search failed. Check your connection and try again.",
+      );
+    } finally {
+      setIsSearching(false);
+    }
   }
 
   if (showCamera) {
@@ -324,6 +414,9 @@ export default function App() {
           setRecognizedWords([]);
           setSelectedWords([]);
           setSearchQuery("");
+          setSearchReady(false);
+          setSearchError(null);
+          setCatalogResults(null);
         }}
         onTextRecognized={handleTextRecognized}
       />
@@ -347,119 +440,198 @@ export default function App() {
           ref={scrollViewRef}
         >
           <View style={styles.homeContent}>
-            <View style={styles.brandMark}>
-              <Text style={styles.brandMarkText}>DG</Text>
-            </View>
-            <Text style={styles.eyebrow}>YOUR DISC GOLF COLLECTION</Text>
-            <Text style={styles.title}>Keep your discs{"\n"}in the loop.</Text>
-            <Text style={styles.subtitle}>
-              Add a disc to start building your collection.
-            </Text>
-
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setShowCamera(true)}
-              style={({ pressed }) => [
-                styles.addButton,
-                pressed && styles.pressedButton,
-              ]}
-            >
-              <Text style={styles.addButtonLabel}>+ add disc</Text>
-            </Pressable>
-
-            {lastPhotoUri ? (
-              <View style={styles.latestPhotoCard}>
-                <Image
-                  source={{ uri: lastPhotoUri }}
-                  style={styles.thumbnail}
-                />
-                <View style={styles.latestPhotoContent}>
-                  <Text numberOfLines={1} style={styles.latestPhotoTitle}>
-                    {lastRecognizedText ? "Recognized text" : "No text found"}
-                  </Text>
-                  <Text numberOfLines={3} style={styles.latestPhotoSubtitle}>
-                    {lastRecognizedText ||
-                      "Try taking a clearer photo of the disc."}
-                  </Text>
+            {searchReady ? (
+              <>
+                <View style={styles.searchHeader}>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={cancelSearch}
+                    style={styles.backButton}
+                  >
+                    <Text style={styles.backButtonLabel}>Cancel</Text>
+                  </Pressable>
                 </View>
-              </View>
-            ) : null}
-
-            {recognizedWords.length > 0 ? (
-              <View style={styles.queryCard}>
-                <Text style={styles.queryTitle}>Choose Search Terms</Text>
-                <Text style={styles.queryInstructions}>
-                  Words start unselected. Toggling a word rebuilds the query and
-                  replaces any manual edits.
-                </Text>
-                <View style={styles.wordList}>
-                  {recognizedWords.map((word, index) => {
-                    const selected = selectedWords[index] ?? false;
-                    return (
-                      <Pressable
-                        key={`${index}-${word}`}
-                        accessibilityRole="button"
-                        accessibilityLabel={`${word}, ${selected ? "selected" : "not selected"}`}
-                        accessibilityState={{ selected }}
-                        onPress={() => toggleRecognizedWord(index)}
-                        style={[
-                          styles.wordChip,
-                          selected && styles.wordChipSelected,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.wordChipText,
-                            selected && styles.wordChipTextSelected,
-                          ]}
+                {lastPhotoUri ? (
+                  <Image
+                    accessibilityLabel="Photo of the disc being searched"
+                    source={{ uri: lastPhotoUri }}
+                    resizeMode="contain"
+                    style={styles.searchPhoto}
+                  />
+                ) : null}
+                <View style={styles.queryCard}>
+                  <Text style={styles.queryTitle}>Choose Search Terms</Text>
+                  {recognizedWords.length > 0 ? (
+                    <>
+                      <Text style={styles.queryInstructions}>
+                        Words start unselected. Toggling a word rebuilds the
+                        query and replaces any manual edits.
+                      </Text>
+                      <View style={styles.wordList}>
+                        {recognizedWords.map((word, index) => {
+                          const selected = selectedWords[index] ?? false;
+                          return (
+                            <Pressable
+                              key={`${index}-${word}`}
+                              accessibilityRole="button"
+                              accessibilityLabel={`${word}, ${selected ? "selected" : "not selected"}`}
+                              accessibilityState={{ selected }}
+                              onPress={() => toggleRecognizedWord(index)}
+                              style={[
+                                styles.wordChip,
+                                selected && styles.wordChipSelected,
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.wordChipText,
+                                  selected && styles.wordChipTextSelected,
+                                ]}
+                              >
+                                {word}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </>
+                  ) : (
+                    <Text style={styles.queryInstructions}>
+                      No words were recognized. Enter search terms manually.
+                    </Text>
+                  )}
+                  <Text style={styles.queryLabel}>Finalize Search Terms</Text>
+                  <Text style={styles.queryInstructions}>
+                    Edit any misspelled words or add words to your search terms
+                    as needed.
+                  </Text>
+                  <TextInput
+                    accessibilityLabel="Edit TryDiscs search terms"
+                    onChangeText={(text) => {
+                      setSearchQuery(text);
+                      setSearchError(null);
+                      setCatalogResults(null);
+                    }}
+                    onBlur={() => {
+                      searchInputFocused.current = false;
+                      ignoreFocusSelectAll.current = false;
+                    }}
+                    onFocus={() => {
+                      searchInputFocused.current = true;
+                      ignoreFocusSelectAll.current = true;
+                      const end = searchQuery.length;
+                      setQuerySelection({ start: end, end });
+                    }}
+                    onSelectionChange={(event) => {
+                      const selection = event.nativeEvent.selection;
+                      if (
+                        ignoreFocusSelectAll.current &&
+                        selection.start === 0 &&
+                        selection.end === searchQuery.length &&
+                        searchQuery.length > 0
+                      ) {
+                        return;
+                      }
+                      ignoreFocusSelectAll.current = false;
+                      setQuerySelection(selection);
+                    }}
+                    placeholder="Select words or enter search text"
+                    placeholderTextColor="#829087"
+                    ref={searchInputRef}
+                    selectTextOnFocus={false}
+                    selection={querySelection}
+                    style={styles.queryInput}
+                    value={searchQuery}
+                  />
+                  {searchError ? (
+                    <Text accessibilityRole="alert" style={styles.errorText}>
+                      {searchError}
+                    </Text>
+                  ) : null}
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={isSearching}
+                    onPress={() => void submitCatalogSearch()}
+                    style={({ pressed }) => [
+                      styles.addButton,
+                      isSearching && styles.disabledButton,
+                      pressed && !isSearching && styles.pressedButton,
+                    ]}
+                  >
+                    {isSearching ? (
+                      <View style={styles.buttonProgress}>
+                        <ActivityIndicator color="#fff" size="small" />
+                        <Text style={styles.addButtonLabel}>Searching…</Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.addButtonLabel}>Submit Search</Text>
+                    )}
+                  </Pressable>
+                </View>
+                {catalogResults ? (
+                  <View style={styles.resultsCard}>
+                    <Text style={styles.queryTitle}>Possible Matches</Text>
+                    {catalogResults.matches.length > 0 ? (
+                      catalogResults.matches.map((match, index) => (
+                        <View
+                          key={
+                            typeof match.slug === "string"
+                              ? match.slug
+                              : `match-${index}`
+                          }
+                          style={styles.resultItem}
                         >
-                          {word}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
+                          <Text style={styles.resultName}>
+                            {[match.brand, match.name]
+                              .filter(
+                                (value): value is string =>
+                                  typeof value === "string",
+                              )
+                              .join(" ")}
+                          </Text>
+                          {typeof match.type === "string" ? (
+                            <Text style={styles.resultDetails}>
+                              {match.type}
+                            </Text>
+                          ) : null}
+                        </View>
+                      ))
+                    ) : (
+                      <Text style={styles.queryInstructions}>
+                        No matches found. Edit the search terms and try again.
+                      </Text>
+                    )}
+                    <Text style={styles.attribution}>
+                      {catalogResults.attribution}
+                    </Text>
+                  </View>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <View style={styles.brandMark}>
+                  <Text style={styles.brandMarkText}>DG</Text>
                 </View>
-                <Text style={styles.queryLabel}>Finalize Search Terms</Text>
-                <Text style={styles.queryInstructions}>
-                  Edit any misspelled words or add words to your search terms as
-                  needed.
+                <Text style={styles.eyebrow}>YOUR DISC GOLF COLLECTION</Text>
+                <Text style={styles.title}>
+                  Keep your discs{"\n"}in the loop.
                 </Text>
-                <TextInput
-                  accessibilityLabel="Edit TryDiscs search terms"
-                  onChangeText={setSearchQuery}
-                  onBlur={() => {
-                    searchInputFocused.current = false;
-                    ignoreFocusSelectAll.current = false;
-                  }}
-                  onFocus={() => {
-                    searchInputFocused.current = true;
-                    ignoreFocusSelectAll.current = true;
-                    const end = searchQuery.length;
-                    setQuerySelection({ start: end, end });
-                  }}
-                  onSelectionChange={(event) => {
-                    const selection = event.nativeEvent.selection;
-                    if (
-                      ignoreFocusSelectAll.current &&
-                      selection.start === 0 &&
-                      selection.end === searchQuery.length &&
-                      searchQuery.length > 0
-                    ) {
-                      return;
-                    }
-                    ignoreFocusSelectAll.current = false;
-                    setQuerySelection(selection);
-                  }}
-                  placeholder="Select words or enter search text"
-                  placeholderTextColor="#829087"
-                  ref={searchInputRef}
-                  selectTextOnFocus={false}
-                  selection={querySelection}
-                  style={styles.queryInput}
-                  value={searchQuery}
-                />
-              </View>
-            ) : null}
+                <Text style={styles.subtitle}>
+                  Add a disc to start building your collection.
+                </Text>
+
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setShowCamera(true)}
+                  style={({ pressed }) => [
+                    styles.addButton,
+                    pressed && styles.pressedButton,
+                  ]}
+                >
+                  <Text style={styles.addButtonLabel}>+ add disc</Text>
+                </Pressable>
+              </>
+            )}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -488,6 +660,16 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 480,
     alignSelf: "center",
+  },
+  searchHeader: {
+    minHeight: 48,
+    justifyContent: "center",
+  },
+  searchPhoto: {
+    width: "100%",
+    height: 220,
+    borderRadius: 16,
+    backgroundColor: "#e5ebe4",
   },
   brandMark: {
     width: 52,
@@ -625,6 +807,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     textAlignVertical: "top",
+    marginBottom: 10,
+  },
+  resultsCard: {
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: "#fff",
+  },
+  resultItem: {
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e5ebe4",
+  },
+  resultName: {
+    color: "#183528",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  resultDetails: {
+    color: "#64746a",
+    fontSize: 13,
+    marginTop: 4,
+  },
+  attribution: {
+    color: "#64746a",
+    fontSize: 12,
+    marginTop: 14,
   },
   centeredScreen: {
     flex: 1,
