@@ -53,10 +53,19 @@ needs a simulator-specific build.
 
 The app's **+ add disc** button opens the camera so you can take and preview a
 disc photo. Tapping **Done** runs on-device text recognition and opens the
-search preparation screen, where you can select recognized words, edit the
-query, see the captured photo, and submit it to the TryDiscs lookup API. Use
-**Cancel** to return to the home screen. Camera and OCR use native code, so
-rebuild and reinstall your development build after installing this update.
+search preparation screen, where recognized words start unselected and
+selecting them builds the query. Edit it before submitting to the TryDiscs
+lookup API. Select a result to review and edit its brand, name, type, and
+flight numbers, then tap **Add to bag**. Other catalog data is retained without
+being shown in the form. The app returns home with a save confirmation. The
+photo stays on the device; this flow sends disc details, not the image, to the
+API.
+
+The current app uses a fixed `local-user` identity because authentication is
+not implemented, and the API stores bags in memory. Camera and OCR use native
+code, so rebuild and reinstall your development build after changing native
+dependencies; JavaScript-only changes can be picked up by the development
+server.
 
 ## TryDiscs lookup during local development
 

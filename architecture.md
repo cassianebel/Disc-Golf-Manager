@@ -20,7 +20,7 @@ Most important scenario: add a disc to the bag (FR-001; Scenario-001).
 1. The user opens the app and the home bag view loads the bag for the active user.
 2. The user taps the add-disc control from the home view.
 3. The app launches the photo capture flow and the user takes a picture of a disc.
-4. The app runs on-device OCR and displays the raw recognized text as selectable words, initially selected in the original order.
+4. The app runs on-device OCR and displays the raw recognized text as selectable words, initially unselected and in the original order.
 5. The selected words populate an editable query field. The user may edit the query and explicitly starts the lookup with that final text.
 6. The client calls the catalog lookup route; the server queries TryDiscs with the final query and returns possible catalog matches with the provider's attribution.
 7. The user selects the matching disc record.

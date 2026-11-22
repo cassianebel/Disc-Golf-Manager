@@ -66,13 +66,13 @@ The current tests exercise route and form-result shapes; they do not yet cover t
 ### 4. OCR token selection and editable query
 
 - **Name:** OCR query preparation
-- **Goal:** Reuse the current Expo camera/OCR flow, present recognized text as initially selected, ordered word tokens, and let the user edit the assembled query before searching.
+- **Goal:** Reuse the current Expo camera/OCR flow, present recognized text as initially unselected, ordered word tokens, and let the user assemble and edit the query before searching.
 - **Spec sources:** Goals; Domain Model; Acceptance Criteria (Scenario-001).
 - **Criteria:** None completed; this is part of Scenario-001, which is completed in Slice 6.
 - **Tests that should turn green:** None in the current suite. Add client tests for token initialization/order, selection changes, and manual query editing before implementation.
 - **Skeleton to fill in:** Existing `CameraScreen.takePhoto` and `CameraScreen.finishAddingDisc` flow in `App.tsx`, plus the existing raw OCR text state/display in `App`. Add no server-side camera or OCR behavior; the device photo URI remains local.
 - **Depends on:** None; the existing camera and OCR packages are already present.
-- **Done when:** New client tests verify raw OCR is exposed as selectable words, selected words populate an editable query, and the final edited query remains available for lookup; no previously passing test fails.
+- **Done when:** Client behavior exposes raw OCR as ordered, initially unselected words; selected words populate an editable query, and the final edited query remains available for lookup; no previously passing test fails.
 - **Status:** done.
 
 ### 5. TryDiscs lookup by confirmed query
@@ -93,29 +93,28 @@ The current tests exercise route and form-result shapes; they do not yet cover t
 - **Goal:** Complete the user-reviewed OCR query, TryDiscs result selection, editable disc form, and bag insertion journey.
 - **Spec sources:** Goals; Domain Model; Functional Requirements (FR-001); Acceptance Criteria (Scenario-001).
 - **Criteria:** Scenario-001.
-- **Tests that should turn green:** None in the current suite. Add an end-to-end Scenario-001 test that verifies reviewable query -> catalog selection -> editable form -> saved bag record.
-- **Skeleton to fill in:** Integrate the existing Expo photo/OCR UI, `TryDiscsCatalogLookup.find_candidate_matches`, `DiscFormEditor.build_disc_form`, `DiscFormEditor.submit_disc_form`, and `BagRepository.add_disc_to_bag` through the catalog lookup and existing `POST /bags/{user_id}/discs` routes.
+- **Tests:** `test_catalog_disc_form_is_saved_to_the_user_bag` verifies that the edited catalog record is stored and listed through the bag API. The camera/OCR-to-form interaction requires on-device acceptance testing; this repository has no React Native UI test runner.
+- **Skeleton filled in:** The Expo client submits the final query, renders selectable catalog matches with attribution, opens an editable form, and posts the confirmed record to `POST /bags/{user_id}/discs`. The camera photo URI remains on-device. The client uses the prototype identity `local-user` because authentication is not implemented.
 - **Depends on:** Slices 1, 3, 4, and 5.
-- **Done when:** The end-to-end Scenario-001 test passes and no previously passing test fails.
-- **Status:** not started.
+- **Done when:** The result-selection, editable-form, and save flow is implemented; the bag API save test passes and no previously passing test fails. Verify camera/OCR and catalog lookup on a physical device.
+- **Status:** done.
 
 ## Test issues
 
 - `test_plan.md` is absent, so there is no separate test inventory to compare against the available suite.
-- Existing tests cover route response shapes and form data selection, but not camera permissions, OCR failure, token selection, editable search, catalog attribution, or the end-to-end acceptance scenarios.
+- Existing Python tests cover route response shapes, catalog lookup, and bag insertion. Camera permissions, OCR, token interaction, and the full mobile acceptance scenario still require device testing.
 - The API key requirement and attribution are from the TryDiscs API terms/documentation, not from `spec.md`.
 
 ## Design questions
 
-- If the user edits the query and then toggles OCR tokens, should the selection rebuild/replace their edited text, or should manual edits remain untouched?
-- No-match behavior remains unspecified. Slice 5 returns a successful empty match list only when TryDiscs successfully returns one; behavior after that remains part of Slice 6.
+- Toggling OCR tokens rebuilds the query and replaces manual edits; no-match results are shown with an option to revise and resubmit the query.
 - The existing photo/OCR implementation is in the Expo client, while `server/modules/photo_capture_and_ocr_intake.py` is a Python stub. Should that unused server stub be removed or explicitly retained as non-runtime documentation?
 - The architecture and spec use unnumbered headings; this plan cites heading names and the existing FR/Scenario identifiers rather than inventing section numbers.
 
 ## Coverage check
 
 - Acceptance criteria assigned exactly once: Scenario-001 (Slice 6), Scenario-002 (Slice 3).
-- Current test names assigned exactly once: `test_add_disc_returns_saved_record` (Slice 1), `test_list_discs_returns_bag` (Slice 2), `test_update_disc_returns_updated_record` and `test_build_disc_form_uses_existing_record_for_edit` (Slice 3), `test_lookup_sends_exact_query_and_returns_matches_with_attribution`, `test_lookup_rejects_empty_query_without_request`, `test_lookup_reports_missing_api_key`, `test_lookup_surfaces_upstream_failure`, and `test_catalog_route_passes_query_to_lookup` (Slice 5), `test_build_disc_form_uses_catalog_match_for_new_disc` (Slice 6).
+- Current test names assigned exactly once: `test_add_disc_returns_saved_record` (Slice 1), `test_list_discs_returns_bag` (Slice 2), `test_update_disc_returns_updated_record` and `test_build_disc_form_uses_existing_record_for_edit` (Slice 3), `test_lookup_sends_exact_query_and_returns_matches_with_attribution`, `test_lookup_rejects_empty_query_without_request`, `test_lookup_reports_missing_api_key`, `test_lookup_surfaces_upstream_failure`, and `test_catalog_route_passes_query_to_lookup` (Slice 5), `test_build_disc_form_uses_catalog_match_for_new_disc` and `test_catalog_disc_form_is_saved_to_the_user_bag` (Slice 6).
 - Current failing tests assigned exactly once: none.
 - Functions with no implementation slice: `HomeBagView.route_to_add_disc` remains deferred because no UI navigation target has been specified.
 - REST routes with no implementation slice: none; `GET /catalog/discs?q={query}` is assigned to Slice 5.

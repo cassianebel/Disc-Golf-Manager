@@ -22,7 +22,8 @@ This file lists the public function contracts for the modules in the architectur
 These are client interaction rules in the existing photo/OCR intake flow, not additional modules or server functions:
 
 - The device camera and OCR remain in the Expo app (`expo-camera`, `expo-ocr-kit`); the photo URI is local to the device.
-- After OCR, split the raw text into whitespace-delimited tokens, preserve their order, and initially select every token.
+- After OCR, split the raw text into whitespace-delimited tokens, preserve their order, and initially leave every token unselected.
+- Start the editable query empty; selecting tokens populates it.
 - Join selected tokens with single spaces to populate the editable query input. The user can edit that field and must explicitly submit the resulting query to search.
 - The lookup receives the exact submitted query; it does not infer a brand/model pair or silently rewrite the user's text.
 - Display TryDiscs attribution alongside catalog results as required by the provider.

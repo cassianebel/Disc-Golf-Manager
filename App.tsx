@@ -29,8 +29,218 @@ type CatalogSearchResponse = {
   attribution: string;
 };
 
+type EditableDiscField = {
+  path: string;
+  name: string;
+  label: string;
+  originalValue: unknown;
+};
+
+type DiscFormRow =
+  | { kind: "field"; field: EditableDiscField }
+  | { kind: "flight-numbers"; fields: EditableDiscField[] };
+
+const LOCAL_USER_ID = "local-user";
+const EDITABLE_DISC_FIELDS = new Set([
+  "brand",
+  "name",
+  "type",
+  "speed",
+  "glide",
+  "turn",
+  "fade",
+  "notes",
+]);
+const FLIGHT_NUMBER_FIELDS = new Set(["speed", "glide", "turn", "fade"]);
+const NUMERIC_DISC_FIELDS = new Set([
+  "speed",
+  "glide",
+  "turn",
+  "fade",
+  "stability",
+]);
+
+function isNumericDiscField(field: EditableDiscField): boolean {
+  return (
+    typeof field.originalValue === "number" ||
+    NUMERIC_DISC_FIELDS.has(field.name) ||
+    field.name.endsWith("_cm") ||
+    field.name.endsWith("_ratio") ||
+    field.name === "rim_configuration"
+  );
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function formatFieldLabel(name: string): string {
+  return name
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function isEditableDiscField(name: string): boolean {
+  return EDITABLE_DISC_FIELDS.has(name.toLowerCase());
+}
+
+function getEditableDiscFields(
+  disc: Record<string, unknown>,
+): EditableDiscField[] {
+  const fields = Object.entries(disc)
+    .filter(([key]) => isEditableDiscField(key))
+    .map(([key, value]) => ({
+      path: key,
+      name: key,
+      label: formatFieldLabel(key),
+      originalValue: value,
+    }));
+  if (!fields.some((field) => field.name.toLowerCase() === "notes")) {
+    fields.push({
+      path: "notes",
+      name: "notes",
+      label: "Notes",
+      originalValue: "",
+    });
+  }
+  return fields;
+}
+
+function getDiscFormRows(fields: EditableDiscField[]): DiscFormRow[] {
+  const flightFields = fields.filter((field) =>
+    FLIGHT_NUMBER_FIELDS.has(field.name),
+  );
+  const rows: DiscFormRow[] = [];
+  let flightRowAdded = false;
+
+  for (const field of fields) {
+    if (FLIGHT_NUMBER_FIELDS.has(field.name)) {
+      if (!flightRowAdded) {
+        rows.push({ kind: "flight-numbers", fields: flightFields });
+        flightRowAdded = true;
+      }
+    } else {
+      rows.push({ kind: "field", field });
+    }
+  }
+
+  return rows;
+}
+
+function toDiscFormValues(
+  disc: Record<string, unknown>,
+): Record<string, string> {
+  return Object.fromEntries(
+    getEditableDiscFields(disc).map((field) => [
+      field.path,
+      field.originalValue == null
+        ? ""
+        : typeof field.originalValue === "string"
+          ? field.originalValue
+          : String(field.originalValue),
+    ]),
+  );
+}
+
+function parseDiscFormValue(
+  field: EditableDiscField,
+  value: string,
+): unknown {
+  const trimmedValue = value.trim();
+  if (typeof field.originalValue === "boolean") {
+    if (trimmedValue.toLowerCase() === "true") {
+      return true;
+    }
+    if (trimmedValue.toLowerCase() === "false") {
+      return false;
+    }
+    throw new Error(`${field.label} must be true or false.`);
+  }
+
+  if (isNumericDiscField(field)) {
+    if (!trimmedValue) {
+      return null;
+    }
+    const numberValue = Number(trimmedValue);
+    if (!Number.isFinite(numberValue)) {
+      throw new Error(`${field.label} must be a number.`);
+    }
+    return numberValue;
+  }
+
+  return value;
+}
+
+function buildEditedDiscRecord(
+  disc: Record<string, unknown>,
+  values: Record<string, string>,
+): Record<string, unknown> {
+  const editedDisc = Object.fromEntries(
+    Object.entries(disc).map(([key, value]) => {
+      if (!isEditableDiscField(key)) {
+        return [key, value];
+      }
+      const field: EditableDiscField = {
+        path: key,
+        name: key,
+        label: formatFieldLabel(key),
+        originalValue: value,
+      };
+      return [key, parseDiscFormValue(field, values[field.path] ?? "")];
+    }),
+  );
+  if (!Object.keys(disc).some((key) => key.toLowerCase() === "notes")) {
+    editedDisc.notes = values.notes ?? "";
+  }
+  return editedDisc;
+}
+
+type DiscFormInputProps = {
+  field: EditableDiscField;
+  value: string;
+  compact?: boolean;
+  onChangeText: (value: string) => void;
+};
+
+function DiscFormInput({
+  field,
+  value,
+  compact = false,
+  onChangeText,
+}: DiscFormInputProps) {
+  const isNotesField = field.name.toLowerCase() === "notes";
+  return (
+    <View
+      style={[
+        styles.formField,
+        compact && styles.flightNumberField,
+      ]}
+    >
+      <Text style={styles.formLabel}>{field.label}</Text>
+      <TextInput
+        accessibilityLabel={field.label}
+        keyboardType={
+          isNumericDiscField(field)
+            ? Platform.OS === "ios"
+              ? "numbers-and-punctuation"
+              : "numeric"
+            : "default"
+        }
+        multiline={isNotesField}
+        onChangeText={onChangeText}
+        numberOfLines={isNotesField ? 4 : 1}
+        placeholder={field.label}
+        placeholderTextColor="#829087"
+        style={[
+          styles.formInput,
+          compact && styles.flightNumberInput,
+          isNotesField && styles.notesInput,
+        ]}
+        textAlignVertical={isNotesField ? "top" : "center"}
+        value={value}
+      />
+    </View>
+  );
 }
 
 function CameraScreen({
@@ -268,9 +478,6 @@ export default function App() {
   const ignoreFocusSelectAll = useRef(false);
   const [showCamera, setShowCamera] = useState(false);
   const [lastPhotoUri, setLastPhotoUri] = useState<string | null>(null);
-  const [lastRecognizedText, setLastRecognizedText] = useState<string | null>(
-    null,
-  );
   const [recognizedWords, setRecognizedWords] = useState<string[]>([]);
   const [selectedWords, setSelectedWords] = useState<boolean[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -282,6 +489,15 @@ export default function App() {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [catalogResults, setCatalogResults] =
     useState<CatalogSearchResponse | null>(null);
+  const [selectedMatch, setSelectedMatch] =
+    useState<Record<string, unknown> | null>(null);
+  const [discFormValues, setDiscFormValues] = useState<Record<string, string>>(
+    {},
+  );
+  const [isSavingDisc, setIsSavingDisc] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [lastAddedDisc, setLastAddedDisc] =
+    useState<Record<string, unknown> | null>(null);
 
   useEffect(() => {
     const subscription = Keyboard.addListener("keyboardDidShow", (event) => {
@@ -308,13 +524,14 @@ export default function App() {
 
   function handleTextRecognized(text: string) {
     const words = text.trim() ? text.trim().split(/\s+/) : [];
-    setLastRecognizedText(text);
     setRecognizedWords(words);
     setSelectedWords(words.map(() => false));
     setSearchQuery("");
     setSearchReady(true);
     setSearchError(null);
     setCatalogResults(null);
+    setSelectedMatch(null);
+    setSaveError(null);
   }
 
   function toggleRecognizedWord(index: number) {
@@ -329,6 +546,8 @@ export default function App() {
       );
       setSearchError(null);
       setCatalogResults(null);
+      setSelectedMatch(null);
+      setSaveError(null);
       return nextSelection;
     });
   }
@@ -338,7 +557,18 @@ export default function App() {
     searchInputRef.current?.blur();
     searchInputFocused.current = false;
     ignoreFocusSelectAll.current = false;
+    setSelectedMatch(null);
     setSearchReady(false);
+  }
+
+  function selectCatalogMatch(match: Record<string, unknown>) {
+    Keyboard.dismiss();
+    searchInputRef.current?.blur();
+    searchInputFocused.current = false;
+    ignoreFocusSelectAll.current = false;
+    setSelectedMatch(match);
+    setDiscFormValues(toDiscFormValues(match));
+    setSaveError(null);
   }
 
   async function submitCatalogSearch() {
@@ -404,19 +634,89 @@ export default function App() {
     }
   }
 
+  async function submitDiscToBag() {
+    const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
+    if (!apiBaseUrl) {
+      setSaveError(
+        "The catalog server URL is not configured. Set EXPO_PUBLIC_API_BASE_URL and restart the app.",
+      );
+      return;
+    }
+    if (!selectedMatch) {
+      setSaveError("Select a catalog match before adding a disc.");
+      return;
+    }
+
+    let discRecord: Record<string, unknown>;
+    try {
+      discRecord = buildEditedDiscRecord(selectedMatch, discFormValues);
+    } catch (error) {
+      setSaveError(
+        error instanceof Error ? error.message : "Check the disc details.",
+      );
+      return;
+    }
+    setIsSavingDisc(true);
+    setSaveError(null);
+    Keyboard.dismiss();
+
+    try {
+      const baseUrl = apiBaseUrl.replace(/\/+$/, "");
+      const response = await fetch(
+        `${baseUrl}/bags/${LOCAL_USER_ID}/discs`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(discRecord),
+        },
+      );
+      const responseBody: unknown = await response.json();
+      if (!response.ok) {
+        const detail =
+          isRecord(responseBody) && typeof responseBody.detail === "string"
+            ? responseBody.detail
+            : `Adding the disc failed with HTTP ${response.status}.`;
+        throw new Error(detail);
+      }
+      if (!isRecord(responseBody) || typeof responseBody.disc_id !== "string") {
+        throw new Error("The bag server returned an invalid saved disc.");
+      }
+
+      setLastAddedDisc(responseBody);
+      setSelectedMatch(null);
+      setDiscFormValues({});
+      setCatalogResults(null);
+      setRecognizedWords([]);
+      setSelectedWords([]);
+      setLastPhotoUri(null);
+      setSearchQuery("");
+      setSearchReady(false);
+    } catch (error) {
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : "Could not add the disc. Check your connection and try again.",
+      );
+    } finally {
+      setIsSavingDisc(false);
+    }
+  }
+
   if (showCamera) {
     return (
       <CameraScreen
         onCancel={() => setShowCamera(false)}
         onPhotoCaptured={(uri) => {
           setLastPhotoUri(uri);
-          setLastRecognizedText(null);
           setRecognizedWords([]);
           setSelectedWords([]);
           setSearchQuery("");
           setSearchReady(false);
           setSearchError(null);
           setCatalogResults(null);
+          setSelectedMatch(null);
+          setDiscFormValues({});
+          setSaveError(null);
         }}
         onTextRecognized={handleTextRecognized}
       />
@@ -459,7 +759,9 @@ export default function App() {
                     style={styles.searchPhoto}
                   />
                 ) : null}
-                <View style={styles.queryCard}>
+                <View
+                  style={selectedMatch ? styles.hidden : styles.queryCard}
+                >
                   <Text style={styles.queryTitle}>Choose Search Terms</Text>
                   {recognizedWords.length > 0 ? (
                     <>
@@ -511,6 +813,8 @@ export default function App() {
                       setSearchQuery(text);
                       setSearchError(null);
                       setCatalogResults(null);
+                      setSelectedMatch(null);
+                      setSaveError(null);
                     }}
                     onBlur={() => {
                       searchInputFocused.current = false;
@@ -568,33 +872,150 @@ export default function App() {
                     )}
                   </Pressable>
                 </View>
-                {catalogResults ? (
+                {selectedMatch ? (
+                  <View style={styles.formCard}>
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => {
+                        setSelectedMatch(null);
+                        setSaveError(null);
+                      }}
+                      style={styles.backButton}
+                    >
+                      <Text style={styles.backButtonLabel}>Back to matches</Text>
+                    </Pressable>
+                    <Text style={styles.queryTitle}>Review Disc Details</Text>
+                    <Text style={styles.queryInstructions}>
+                      Edit the catalog details before adding this disc to your
+                      bag.
+                    </Text>
+                    {getDiscFormRows(
+                      getEditableDiscFields(selectedMatch),
+                    ).map((row) => {
+                      if (row.kind === "flight-numbers") {
+                        return (
+                          <View
+                            key="flight-numbers"
+                            style={styles.flightNumberRow}
+                          >
+                            {row.fields.map((field) => (
+                              <DiscFormInput
+                                key={field.path}
+                                compact
+                                field={field}
+                                onChangeText={(value) => {
+                                  setDiscFormValues((currentValues) => ({
+                                    ...currentValues,
+                                    [field.path]: value,
+                                  }));
+                                  setSaveError(null);
+                                }}
+                                value={discFormValues[field.path] ?? ""}
+                              />
+                            ))}
+                          </View>
+                        );
+                      }
+
+                      const { field } = row;
+                      return (
+                        <DiscFormInput
+                          key={field.path}
+                          field={field}
+                          onChangeText={(value) => {
+                            setDiscFormValues((currentValues) => ({
+                              ...currentValues,
+                              [field.path]: value,
+                            }));
+                            setSaveError(null);
+                          }}
+                          value={discFormValues[field.path] ?? ""}
+                        />
+                      );
+                    })}
+                    {saveError ? (
+                      <Text accessibilityRole="alert" style={styles.errorText}>
+                        {saveError}
+                      </Text>
+                    ) : null}
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={isSavingDisc}
+                      onPress={() => void submitDiscToBag()}
+                      style={({ pressed }) => [
+                        styles.addButton,
+                        styles.formSubmitButton,
+                        isSavingDisc && styles.disabledButton,
+                        pressed && !isSavingDisc && styles.pressedButton,
+                      ]}
+                    >
+                      {isSavingDisc ? (
+                        <View style={styles.buttonProgress}>
+                          <ActivityIndicator color="#fff" size="small" />
+                          <Text style={styles.addButtonLabel}>Adding…</Text>
+                        </View>
+                      ) : (
+                        <Text style={styles.addButtonLabel}>Add to bag</Text>
+                      )}
+                    </Pressable>
+                    {catalogResults ? (
+                      <Text style={styles.attribution}>
+                        {catalogResults.attribution}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : catalogResults ? (
                   <View style={styles.resultsCard}>
                     <Text style={styles.queryTitle}>Possible Matches</Text>
                     {catalogResults.matches.length > 0 ? (
+                      <Text style={styles.queryInstructions}>
+                        Tap a disc to review and edit its details.
+                      </Text>
+                    ) : null}
+                    {catalogResults.matches.length > 0 ? (
                       catalogResults.matches.map((match, index) => (
-                        <View
+                        <Pressable
                           key={
                             typeof match.slug === "string"
                               ? match.slug
                               : `match-${index}`
                           }
-                          style={styles.resultItem}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Select ${[
+                            match.brand,
+                            match.name,
+                          ]
+                            .filter(
+                              (value): value is string =>
+                                typeof value === "string",
+                            )
+                            .join(" ")}`}
+                          accessibilityHint="Opens this match so you can review and edit its details."
+                          onPress={() => selectCatalogMatch(match)}
+                          style={({ pressed }) => [
+                            styles.resultItem,
+                            pressed && styles.resultItemPressed,
+                          ]}
                         >
-                          <Text style={styles.resultName}>
-                            {[match.brand, match.name]
-                              .filter(
-                                (value): value is string =>
-                                  typeof value === "string",
-                              )
-                              .join(" ")}
-                          </Text>
-                          {typeof match.type === "string" ? (
-                            <Text style={styles.resultDetails}>
-                              {match.type}
+                          <View style={styles.resultItemContent}>
+                            <Text style={styles.resultName}>
+                              {[match.brand, match.name]
+                                .filter(
+                                  (value): value is string =>
+                                    typeof value === "string",
+                                )
+                                .join(" ")}
                             </Text>
-                          ) : null}
-                        </View>
+                            {typeof match.type === "string" ? (
+                              <Text style={styles.resultDetails}>
+                                {match.type}
+                              </Text>
+                            ) : null}
+                          </View>
+                          <View style={styles.resultAction}>
+                            <Text style={styles.resultActionLabel}>Select</Text>
+                          </View>
+                        </Pressable>
                       ))
                     ) : (
                       <Text style={styles.queryInstructions}>
@@ -630,6 +1051,24 @@ export default function App() {
                 >
                   <Text style={styles.addButtonLabel}>+ add disc</Text>
                 </Pressable>
+                {lastAddedDisc ? (
+                  <View style={styles.savedDiscCard}>
+                    <Text style={styles.savedDiscTitle}>
+                      Disc added to your bag
+                    </Text>
+                    <Text style={styles.savedDiscName}>
+                      {[
+                        lastAddedDisc.brand,
+                        lastAddedDisc.name,
+                      ]
+                        .filter(
+                          (value): value is string =>
+                            typeof value === "string",
+                        )
+                        .join(" ") || "Disc"}
+                    </Text>
+                  </View>
+                ) : null}
               </>
             )}
           </View>
@@ -714,6 +1153,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: "#1f6b49",
   },
+  formSubmitButton: {
+    marginTop: 16,
+  },
   addButtonLabel: {
     color: "#fff",
     fontSize: 17,
@@ -752,6 +1194,9 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 16,
     backgroundColor: "#fff",
+  },
+  hidden: {
+    display: "none",
   },
   queryTitle: {
     color: "#183528",
@@ -815,10 +1260,68 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: "#fff",
   },
-  resultItem: {
+  formCard: {
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: "#fff",
+  },
+  formField: {
+    marginTop: 14,
+  },
+  flightNumberRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 14,
+  },
+  flightNumberField: {
+    flex: 1,
+    minWidth: 0,
+    marginTop: 0,
+  },
+  formLabel: {
+    color: "#183528",
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 6,
+  },
+  formInput: {
+    minHeight: 48,
+    borderWidth: 1,
+    borderColor: "#cbd8ce",
+    borderRadius: 12,
+    color: "#183528",
+    fontSize: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  flightNumberInput: {
+    paddingHorizontal: 6,
+    textAlign: "center",
+  },
+  notesInput: {
+    minHeight: 112,
     paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e5ebe4",
+    textAlignVertical: "top",
+  },
+  resultItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginTop: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#cbd8ce",
+    borderRadius: 12,
+    backgroundColor: "#f7f8f3",
+  },
+  resultItemPressed: {
+    borderColor: "#1f6b49",
+    backgroundColor: "#e7f0e9",
+  },
+  resultItemContent: {
+    flex: 1,
   },
   resultName: {
     color: "#183528",
@@ -828,6 +1331,34 @@ const styles = StyleSheet.create({
   resultDetails: {
     color: "#64746a",
     fontSize: 13,
+    marginTop: 4,
+  },
+  resultAction: {
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 10,
+    backgroundColor: "#e7f0e9",
+  },
+  resultActionLabel: {
+    color: "#1f6b49",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  savedDiscCard: {
+    marginTop: 24,
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: "#e7f0e9",
+  },
+  savedDiscTitle: {
+    color: "#1f6b49",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  savedDiscName: {
+    color: "#183528",
+    fontSize: 16,
+    fontWeight: "600",
     marginTop: 4,
   },
   attribution: {

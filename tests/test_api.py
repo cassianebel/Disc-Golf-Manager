@@ -99,6 +99,31 @@ class ApiSkeletonTests(unittest.TestCase):
         )
         self.assertIsInstance(result, dict)
 
+    def test_catalog_disc_form_is_saved_to_the_user_bag(self) -> None:
+        edited_disc = {
+            "brand": "Innova",
+            "name": "Destroyer",
+            "speed": 12,
+            "notes": "Edited after selecting the catalog match",
+            "specs": {"diameter_cm": 21.1},
+        }
+
+        saved_disc = self.request_json(
+            "POST",
+            "/bags/slice-6-user/discs",
+            edited_disc,
+        )
+
+        self.assertIsInstance(saved_disc, dict)
+        self.assertEqual(
+            {key: saved_disc[key] for key in edited_disc},
+            edited_disc,
+        )
+        self.assertIsInstance(saved_disc.get("disc_id"), str)
+
+        bag = self.request_json("GET", "/bags/slice-6-user/discs")
+        self.assertIn(saved_disc, bag)
+
     def test_update_disc_returns_updated_record(self) -> None:
         added_disc = self.request_json(
             "POST",
