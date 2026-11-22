@@ -99,7 +99,7 @@ class ApiSkeletonTests(unittest.TestCase):
         )
         self.assertIsInstance(result, dict)
 
-    def test_catalog_disc_form_is_saved_to_the_user_bag(self) -> None:
+    def test_add_disc_route_stores_record_in_the_user_bag(self) -> None:
         edited_disc = {
             "brand": "Innova",
             "name": "Destroyer",

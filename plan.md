@@ -93,16 +93,16 @@ The current tests exercise route and form-result shapes; they do not yet cover t
 - **Goal:** Complete the user-reviewed OCR query, TryDiscs result selection, editable disc form, and bag insertion journey.
 - **Spec sources:** Goals; Domain Model; Functional Requirements (FR-001); Acceptance Criteria (Scenario-001).
 - **Criteria:** Scenario-001.
-- **Tests:** `test_catalog_disc_form_is_saved_to_the_user_bag` verifies that the edited catalog record is stored and listed through the bag API. The camera/OCR-to-form interaction requires on-device acceptance testing; this repository has no React Native UI test runner.
-- **Skeleton filled in:** The Expo client submits the final query, renders selectable catalog matches with attribution, opens an editable form, and posts the confirmed record to `POST /bags/{user_id}/discs`. The camera photo URI remains on-device. The client uses the prototype identity `local-user` because authentication is not implemented.
+- **Tests:** `test_add_disc_route_stores_record_in_the_user_bag` covers the remaining in-memory API route. The mobile app's AsyncStorage/FileSystem flow requires on-device acceptance testing; this repository has no React Native UI test runner.
+- **Skeleton filled in:** The Expo client submits the final query, renders selectable catalog matches with attribution, opens an editable form, copies the captured image into app-private storage, and saves the disc record and photo path locally. The API server is used only for catalog lookup by the mobile client.
 - **Depends on:** Slices 1, 3, 4, and 5.
-- **Done when:** The result-selection, editable-form, and save flow is implemented; the bag API save test passes and no previously passing test fails. Verify camera/OCR and catalog lookup on a physical device.
+- **Done when:** The result-selection, editable-form, and local save flow is implemented; the API tests pass and no previously passing test fails. Verify photo persistence across app restarts on a physical device.
 - **Status:** done.
 
 ## Test issues
 
 - `test_plan.md` is absent, so there is no separate test inventory to compare against the available suite.
-- Existing Python tests cover route response shapes, catalog lookup, and bag insertion. Camera permissions, OCR, token interaction, and the full mobile acceptance scenario still require device testing.
+- Existing Python tests cover route response shapes and catalog lookup. Camera permissions, OCR, local storage, image persistence, and the full mobile acceptance scenario still require device testing.
 - The API key requirement and attribution are from the TryDiscs API terms/documentation, not from `spec.md`.
 
 ## Design questions
@@ -114,7 +114,7 @@ The current tests exercise route and form-result shapes; they do not yet cover t
 ## Coverage check
 
 - Acceptance criteria assigned exactly once: Scenario-001 (Slice 6), Scenario-002 (Slice 3).
-- Current test names assigned exactly once: `test_add_disc_returns_saved_record` (Slice 1), `test_list_discs_returns_bag` (Slice 2), `test_update_disc_returns_updated_record` and `test_build_disc_form_uses_existing_record_for_edit` (Slice 3), `test_lookup_sends_exact_query_and_returns_matches_with_attribution`, `test_lookup_rejects_empty_query_without_request`, `test_lookup_reports_missing_api_key`, `test_lookup_surfaces_upstream_failure`, and `test_catalog_route_passes_query_to_lookup` (Slice 5), `test_build_disc_form_uses_catalog_match_for_new_disc` and `test_catalog_disc_form_is_saved_to_the_user_bag` (Slice 6).
+- Current test names assigned exactly once: `test_add_disc_returns_saved_record` and `test_add_disc_route_stores_record_in_the_user_bag` (Slice 1), `test_list_discs_returns_bag` (Slice 2), `test_update_disc_returns_updated_record` and `test_build_disc_form_uses_existing_record_for_edit` (Slice 3), `test_lookup_sends_exact_query_and_returns_matches_with_attribution`, `test_lookup_rejects_empty_query_without_request`, `test_lookup_reports_missing_api_key`, `test_lookup_surfaces_upstream_failure`, and `test_catalog_route_passes_query_to_lookup` (Slice 5), `test_build_disc_form_uses_catalog_match_for_new_disc` (Slice 6).
 - Current failing tests assigned exactly once: none.
 - Functions with no implementation slice: `HomeBagView.route_to_add_disc` remains deferred because no UI navigation target has been specified.
 - REST routes with no implementation slice: none; `GET /catalog/discs?q={query}` is assigned to Slice 5.

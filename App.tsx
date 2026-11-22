@@ -4,7 +4,15 @@ import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useEffect, useRef, useState, type ElementRef } from "react";
 import {
+  loadLocalBag,
+  removeStoredPhoto,
+  saveDiscPhoto,
+  saveLocalBag,
+  type LocalDisc,
+} from "./storage/localBagStorage";
+import {
   ActivityIndicator,
+  Alert,
   Image,
   Linking,
   Keyboard,
@@ -40,7 +48,6 @@ type DiscFormRow =
   | { kind: "field"; field: EditableDiscField }
   | { kind: "flight-numbers"; fields: EditableDiscField[] };
 
-const LOCAL_USER_ID = "local-user";
 const EDITABLE_DISC_FIELDS = new Set([
   "brand",
   "name",
@@ -142,10 +149,7 @@ function toDiscFormValues(
   );
 }
 
-function parseDiscFormValue(
-  field: EditableDiscField,
-  value: string,
-): unknown {
+function parseDiscFormValue(field: EditableDiscField, value: string): unknown {
   const trimmedValue = value.trim();
   if (typeof field.originalValue === "boolean") {
     if (trimmedValue.toLowerCase() === "true") {
@@ -200,6 +204,8 @@ type DiscFormInputProps = {
   value: string;
   compact?: boolean;
   onChangeText: (value: string) => void;
+  onInputBlur?: (input: ElementRef<typeof TextInput>) => void;
+  onInputFocus?: (input: ElementRef<typeof TextInput>) => void;
 };
 
 function DiscFormInput({
@@ -207,18 +213,21 @@ function DiscFormInput({
   value,
   compact = false,
   onChangeText,
+  onInputBlur,
+  onInputFocus,
 }: DiscFormInputProps) {
   const isNotesField = field.name.toLowerCase() === "notes";
+  const inputRef = useRef<ElementRef<typeof TextInput>>(null);
   return (
-    <View
-      style={[
-        styles.formField,
-        compact && styles.flightNumberField,
-      ]}
-    >
+    <View style={[styles.formField, compact && styles.flightNumberField]}>
       <Text style={styles.formLabel}>{field.label}</Text>
       <TextInput
         accessibilityLabel={field.label}
+        onBlur={() => {
+          if (inputRef.current) {
+            onInputBlur?.(inputRef.current);
+          }
+        }}
         keyboardType={
           isNumericDiscField(field)
             ? Platform.OS === "ios"
@@ -228,6 +237,11 @@ function DiscFormInput({
         }
         multiline={isNotesField}
         onChangeText={onChangeText}
+        onFocus={() => {
+          if (inputRef.current) {
+            onInputFocus?.(inputRef.current);
+          }
+        }}
         numberOfLines={isNotesField ? 4 : 1}
         placeholder={field.label}
         placeholderTextColor="#829087"
@@ -238,6 +252,7 @@ function DiscFormInput({
         ]}
         textAlignVertical={isNotesField ? "top" : "center"}
         value={value}
+        ref={inputRef}
       />
     </View>
   );
@@ -341,7 +356,7 @@ function CameraScreen({
           <Pressable
             accessibilityRole="button"
             onPress={() => void askCameraPermission()}
-            style={styles.primaryButton}
+            style={[styles.primaryButton, styles.permissionButton]}
           >
             <Text style={styles.primaryButtonText}>Allow camera</Text>
           </Pressable>
@@ -349,7 +364,7 @@ function CameraScreen({
           <Pressable
             accessibilityRole="button"
             onPress={openSettings}
-            style={styles.primaryButton}
+            style={[styles.primaryButton, styles.permissionButton]}
           >
             <Text style={styles.primaryButtonText}>Open settings</Text>
           </Pressable>
@@ -473,8 +488,8 @@ function CameraScreen({
 export default function App() {
   const scrollViewRef = useRef<ElementRef<typeof ScrollView>>(null);
   const searchInputRef = useRef<ElementRef<typeof TextInput>>(null);
+  const focusedTextInputRef = useRef<ElementRef<typeof TextInput> | null>(null);
   const scrollOffset = useRef(0);
-  const searchInputFocused = useRef(false);
   const ignoreFocusSelectAll = useRef(false);
   const [showCamera, setShowCamera] = useState(false);
   const [lastPhotoUri, setLastPhotoUri] = useState<string | null>(null);
@@ -489,24 +504,33 @@ export default function App() {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [catalogResults, setCatalogResults] =
     useState<CatalogSearchResponse | null>(null);
-  const [selectedMatch, setSelectedMatch] =
-    useState<Record<string, unknown> | null>(null);
+  const [selectedMatch, setSelectedMatch] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
   const [discFormValues, setDiscFormValues] = useState<Record<string, string>>(
     {},
   );
   const [isSavingDisc, setIsSavingDisc] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [lastAddedDisc, setLastAddedDisc] =
-    useState<Record<string, unknown> | null>(null);
+  const [bagDiscs, setBagDiscs] = useState<LocalDisc[]>([]);
+  const [isBagLoading, setIsBagLoading] = useState(true);
+  const [bagLoadError, setBagLoadError] = useState<string | null>(null);
+  const [lastAddedDisc, setLastAddedDisc] = useState<LocalDisc | null>(null);
+  const [deletingDiscId, setDeletingDiscId] = useState<string | null>(null);
 
   useEffect(() => {
     const subscription = Keyboard.addListener("keyboardDidShow", (event) => {
-      if (!searchInputFocused.current) {
+      const focusedInput = focusedTextInputRef.current;
+      if (!focusedInput) {
         return;
       }
 
       requestAnimationFrame(() => {
-        searchInputRef.current?.measureInWindow((_x, y, _width, height) => {
+        if (focusedTextInputRef.current !== focusedInput) {
+          return;
+        }
+        focusedInput.measureInWindow((_x, y, _width, height) => {
           const keyboardTop = event.endCoordinates.screenY;
           const obscuredAmount = y + height + 16 - keyboardTop;
           if (obscuredAmount > 0) {
@@ -520,6 +544,46 @@ export default function App() {
     });
 
     return () => subscription.remove();
+  }, []);
+
+  function handleTextInputFocus(input: ElementRef<typeof TextInput>) {
+    focusedTextInputRef.current = input;
+  }
+
+  function handleTextInputBlur(input: ElementRef<typeof TextInput>) {
+    if (focusedTextInputRef.current === input) {
+      focusedTextInputRef.current = null;
+    }
+  }
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function initializeBag() {
+      try {
+        const savedDiscs = await loadLocalBag();
+        if (isMounted) {
+          setBagDiscs(savedDiscs);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setBagLoadError(
+            error instanceof Error
+              ? error.message
+              : "Could not load the saved bag.",
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setIsBagLoading(false);
+        }
+      }
+    }
+
+    void initializeBag();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   function handleTextRecognized(text: string) {
@@ -555,7 +619,9 @@ export default function App() {
   function cancelSearch() {
     Keyboard.dismiss();
     searchInputRef.current?.blur();
-    searchInputFocused.current = false;
+    if (searchInputRef.current) {
+      handleTextInputBlur(searchInputRef.current);
+    }
     ignoreFocusSelectAll.current = false;
     setSelectedMatch(null);
     setSearchReady(false);
@@ -564,7 +630,9 @@ export default function App() {
   function selectCatalogMatch(match: Record<string, unknown>) {
     Keyboard.dismiss();
     searchInputRef.current?.blur();
-    searchInputFocused.current = false;
+    if (searchInputRef.current) {
+      handleTextInputBlur(searchInputRef.current);
+    }
     ignoreFocusSelectAll.current = false;
     setSelectedMatch(match);
     setDiscFormValues(toDiscFormValues(match));
@@ -635,15 +703,20 @@ export default function App() {
   }
 
   async function submitDiscToBag() {
-    const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
-    if (!apiBaseUrl) {
+    if (!selectedMatch) {
+      setSaveError("Select a catalog match before adding a disc.");
+      return;
+    }
+    if (!lastPhotoUri) {
       setSaveError(
-        "The catalog server URL is not configured. Set EXPO_PUBLIC_API_BASE_URL and restart the app.",
+        "The captured photo is missing. Retake it before adding the disc.",
       );
       return;
     }
-    if (!selectedMatch) {
-      setSaveError("Select a catalog match before adding a disc.");
+    if (isBagLoading || bagLoadError) {
+      setSaveError(
+        "The saved bag could not be loaded, so this disc cannot be saved safely.",
+      );
       return;
     }
 
@@ -661,28 +734,31 @@ export default function App() {
     Keyboard.dismiss();
 
     try {
-      const baseUrl = apiBaseUrl.replace(/\/+$/, "");
-      const response = await fetch(
-        `${baseUrl}/bags/${LOCAL_USER_ID}/discs`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(discRecord),
-        },
-      );
-      const responseBody: unknown = await response.json();
-      if (!response.ok) {
-        const detail =
-          isRecord(responseBody) && typeof responseBody.detail === "string"
-            ? responseBody.detail
-            : `Adding the disc failed with HTTP ${response.status}.`;
-        throw new Error(detail);
-      }
-      if (!isRecord(responseBody) || typeof responseBody.disc_id !== "string") {
-        throw new Error("The bag server returned an invalid saved disc.");
+      const discId = `disc-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      const savedPhotoUri = await saveDiscPhoto(lastPhotoUri, discId);
+      const savedDisc: LocalDisc = {
+        ...discRecord,
+        disc_id: discId,
+        photo_uri: savedPhotoUri,
+      };
+      const nextBag = [savedDisc, ...bagDiscs];
+
+      try {
+        await saveLocalBag(nextBag);
+      } catch (error) {
+        try {
+          removeStoredPhoto(savedPhotoUri);
+        } catch (cleanupError) {
+          console.error(
+            "Could not remove the unsaved disc photo.",
+            cleanupError,
+          );
+        }
+        throw error;
       }
 
-      setLastAddedDisc(responseBody);
+      setBagDiscs(nextBag);
+      setLastAddedDisc(savedDisc);
       setSelectedMatch(null);
       setDiscFormValues({});
       setCatalogResults(null);
@@ -695,10 +771,64 @@ export default function App() {
       setSaveError(
         error instanceof Error
           ? error.message
-          : "Could not add the disc. Check your connection and try again.",
+          : "Could not add the disc. Try again.",
       );
     } finally {
       setIsSavingDisc(false);
+    }
+  }
+
+  function confirmDeleteDisc(disc: LocalDisc, discName: string) {
+    Alert.alert(
+      "Delete disc?",
+      `Remove ${discName} and its saved photo from your bag?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => void deleteDiscFromBag(disc),
+        },
+      ],
+    );
+  }
+
+  async function deleteDiscFromBag(disc: LocalDisc) {
+    if (isBagLoading || bagLoadError || deletingDiscId !== null) {
+      return;
+    }
+
+    setDeletingDiscId(disc.disc_id);
+    try {
+      const nextBag = bagDiscs.filter(
+        (bagDisc) => bagDisc.disc_id !== disc.disc_id,
+      );
+      await saveLocalBag(nextBag);
+      setBagDiscs(nextBag);
+
+      if (lastAddedDisc?.disc_id === disc.disc_id) {
+        setLastAddedDisc(null);
+      }
+
+      if (typeof disc.photo_uri === "string") {
+        try {
+          removeStoredPhoto(disc.photo_uri);
+        } catch (error) {
+          Alert.alert(
+            "Disc deleted, but photo cleanup failed",
+            error instanceof Error
+              ? error.message
+              : "The saved photo could not be removed.",
+          );
+        }
+      }
+    } catch (error) {
+      Alert.alert(
+        "Couldn't delete disc",
+        error instanceof Error ? error.message : "Please try again.",
+      );
+    } finally {
+      setDeletingDiscId(null);
     }
   }
 
@@ -759,9 +889,7 @@ export default function App() {
                     style={styles.searchPhoto}
                   />
                 ) : null}
-                <View
-                  style={selectedMatch ? styles.hidden : styles.queryCard}
-                >
+                <View style={selectedMatch ? styles.hidden : styles.queryCard}>
                   <Text style={styles.queryTitle}>Choose Search Terms</Text>
                   {recognizedWords.length > 0 ? (
                     <>
@@ -817,11 +945,15 @@ export default function App() {
                       setSaveError(null);
                     }}
                     onBlur={() => {
-                      searchInputFocused.current = false;
+                      if (searchInputRef.current) {
+                        handleTextInputBlur(searchInputRef.current);
+                      }
                       ignoreFocusSelectAll.current = false;
                     }}
                     onFocus={() => {
-                      searchInputFocused.current = true;
+                      if (searchInputRef.current) {
+                        handleTextInputFocus(searchInputRef.current);
+                      }
                       ignoreFocusSelectAll.current = true;
                       const end = searchQuery.length;
                       setQuerySelection({ start: end, end });
@@ -882,77 +1014,98 @@ export default function App() {
                       }}
                       style={styles.backButton}
                     >
-                      <Text style={styles.backButtonLabel}>Back to matches</Text>
+                      <Text style={styles.backButtonLabel}>
+                        Back to matches
+                      </Text>
                     </Pressable>
                     <Text style={styles.queryTitle}>Review Disc Details</Text>
                     <Text style={styles.queryInstructions}>
                       Edit the catalog details before adding this disc to your
                       bag.
                     </Text>
-                    {getDiscFormRows(
-                      getEditableDiscFields(selectedMatch),
-                    ).map((row) => {
-                      if (row.kind === "flight-numbers") {
-                        return (
-                          <View
-                            key="flight-numbers"
-                            style={styles.flightNumberRow}
-                          >
-                            {row.fields.map((field) => (
-                              <DiscFormInput
-                                key={field.path}
-                                compact
-                                field={field}
-                                onChangeText={(value) => {
-                                  setDiscFormValues((currentValues) => ({
-                                    ...currentValues,
-                                    [field.path]: value,
-                                  }));
-                                  setSaveError(null);
-                                }}
-                                value={discFormValues[field.path] ?? ""}
-                              />
-                            ))}
-                          </View>
-                        );
-                      }
+                    {getDiscFormRows(getEditableDiscFields(selectedMatch)).map(
+                      (row) => {
+                        if (row.kind === "flight-numbers") {
+                          return (
+                            <View
+                              key="flight-numbers"
+                              style={styles.flightNumberRow}
+                            >
+                              {row.fields.map((field) => (
+                                <DiscFormInput
+                                  key={field.path}
+                                  compact
+                                  field={field}
+                                  onChangeText={(value) => {
+                                    setDiscFormValues((currentValues) => ({
+                                      ...currentValues,
+                                      [field.path]: value,
+                                    }));
+                                    setSaveError(null);
+                                  }}
+                                  onInputBlur={handleTextInputBlur}
+                                  onInputFocus={handleTextInputFocus}
+                                  value={discFormValues[field.path] ?? ""}
+                                />
+                              ))}
+                            </View>
+                          );
+                        }
 
-                      const { field } = row;
-                      return (
-                        <DiscFormInput
-                          key={field.path}
-                          field={field}
-                          onChangeText={(value) => {
-                            setDiscFormValues((currentValues) => ({
-                              ...currentValues,
-                              [field.path]: value,
-                            }));
-                            setSaveError(null);
-                          }}
-                          value={discFormValues[field.path] ?? ""}
-                        />
-                      );
-                    })}
+                        const { field } = row;
+                        return (
+                          <DiscFormInput
+                            key={field.path}
+                            field={field}
+                            onChangeText={(value) => {
+                              setDiscFormValues((currentValues) => ({
+                                ...currentValues,
+                                [field.path]: value,
+                              }));
+                              setSaveError(null);
+                            }}
+                            onInputBlur={handleTextInputBlur}
+                            onInputFocus={handleTextInputFocus}
+                            value={discFormValues[field.path] ?? ""}
+                          />
+                        );
+                      },
+                    )}
                     {saveError ? (
                       <Text accessibilityRole="alert" style={styles.errorText}>
                         {saveError}
                       </Text>
                     ) : null}
+                    {bagLoadError ? (
+                      <Text accessibilityRole="alert" style={styles.errorText}>
+                        Your saved bag could not be loaded, so this disc cannot
+                        be saved without risking existing data.
+                      </Text>
+                    ) : null}
                     <Pressable
                       accessibilityRole="button"
-                      disabled={isSavingDisc}
+                      disabled={
+                        isSavingDisc || isBagLoading || Boolean(bagLoadError)
+                      }
                       onPress={() => void submitDiscToBag()}
                       style={({ pressed }) => [
                         styles.addButton,
                         styles.formSubmitButton,
-                        isSavingDisc && styles.disabledButton,
-                        pressed && !isSavingDisc && styles.pressedButton,
+                        (isSavingDisc || isBagLoading || bagLoadError) &&
+                          styles.disabledButton,
+                        pressed &&
+                          !isSavingDisc &&
+                          !isBagLoading &&
+                          !bagLoadError &&
+                          styles.pressedButton,
                       ]}
                     >
-                      {isSavingDisc ? (
+                      {isSavingDisc || isBagLoading ? (
                         <View style={styles.buttonProgress}>
                           <ActivityIndicator color="#fff" size="small" />
-                          <Text style={styles.addButtonLabel}>Adding…</Text>
+                          <Text style={styles.addButtonLabel}>
+                            {isSavingDisc ? "Saving…" : "Loading bag…"}
+                          </Text>
                         </View>
                       ) : (
                         <Text style={styles.addButtonLabel}>Add to bag</Text>
@@ -1038,7 +1191,9 @@ export default function App() {
                   Keep your discs{"\n"}in the loop.
                 </Text>
                 <Text style={styles.subtitle}>
-                  Add a disc to start building your collection.
+                  {bagDiscs.length > 0
+                    ? `${bagDiscs.length} ${bagDiscs.length === 1 ? "disc" : "discs"} in your bag.`
+                    : "Add a disc to start building your collection."}
                 </Text>
 
                 <Pressable
@@ -1057,16 +1212,118 @@ export default function App() {
                       Disc added to your bag
                     </Text>
                     <Text style={styles.savedDiscName}>
-                      {[
-                        lastAddedDisc.brand,
-                        lastAddedDisc.name,
-                      ]
+                      {[lastAddedDisc.brand, lastAddedDisc.name]
                         .filter(
-                          (value): value is string =>
-                            typeof value === "string",
+                          (value): value is string => typeof value === "string",
                         )
                         .join(" ") || "Disc"}
                     </Text>
+                  </View>
+                ) : null}
+                {isBagLoading ? (
+                  <View style={styles.bagLoading}>
+                    <ActivityIndicator color="#1f6b49" />
+                    <Text style={styles.bagLoadingText}>Loading your bag…</Text>
+                  </View>
+                ) : null}
+                {bagLoadError ? (
+                  <Text accessibilityRole="alert" style={styles.errorText}>
+                    Could not load your saved bag: {bagLoadError}
+                  </Text>
+                ) : null}
+                {bagDiscs.length > 0 ? (
+                  <View style={styles.bagDiscList}>
+                    <Text style={styles.queryTitle}>Your Bag</Text>
+                    {bagDiscs.map((disc) => {
+                      const discName =
+                        [disc.brand, disc.name]
+                          .filter(
+                            (value): value is string =>
+                              typeof value === "string",
+                          )
+                          .join(" ") || "Disc";
+                      const flightNumbers = [
+                        "speed",
+                        "glide",
+                        "turn",
+                        "fade",
+                      ].flatMap((field) => {
+                        const value = disc[field];
+                        return typeof value === "number" ||
+                          typeof value === "string"
+                          ? [{ field, value: String(value) }]
+                          : [];
+                      });
+
+                      return (
+                        <View key={disc.disc_id} style={styles.bagDiscCard}>
+                          {typeof disc.photo_uri === "string" ? (
+                            <Image
+                              accessibilityLabel={`Photo of ${discName}`}
+                              source={{ uri: disc.photo_uri }}
+                              resizeMode="cover"
+                              style={styles.bagDiscImage}
+                            />
+                          ) : (
+                            <View style={styles.bagDiscImagePlaceholder} />
+                          )}
+                          <View style={styles.bagDiscContent}>
+                            <Text style={styles.bagDiscName}>{discName}</Text>
+                            {typeof disc.type === "string" ? (
+                              <Text style={styles.bagDiscDetails}>
+                                {disc.type}
+                              </Text>
+                            ) : null}
+                            {flightNumbers.length > 0 ? (
+                              <View style={styles.bagFlightNumberRow}>
+                                {flightNumbers.map(({ field, value }) => (
+                                  <View
+                                    key={field}
+                                    style={styles.bagFlightNumber}
+                                  >
+                                    <Text style={styles.bagFlightNumberText}>
+                                      {value}
+                                    </Text>
+                                  </View>
+                                ))}
+                              </View>
+                            ) : null}
+                            {typeof disc.notes === "string" &&
+                            disc.notes.trim() ? (
+                              <Text
+                                numberOfLines={2}
+                                style={styles.bagDiscNotes}
+                              >
+                                {disc.notes}
+                              </Text>
+                            ) : null}
+                          </View>
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={`Delete ${discName} from bag`}
+                            accessibilityState={{
+                              disabled: deletingDiscId !== null,
+                            }}
+                            disabled={deletingDiscId !== null}
+                            onPress={() => confirmDeleteDisc(disc, discName)}
+                            style={({ pressed }) => [
+                              styles.deleteDiscButton,
+                              pressed &&
+                                deletingDiscId === null &&
+                                styles.pressedButton,
+                            ]}
+                          >
+                            {deletingDiscId === disc.disc_id ? (
+                              <ActivityIndicator color="#a33a32" size="small" />
+                            ) : (
+                              <Text style={styles.deleteDiscButtonText}>
+                                Delete
+                              </Text>
+                            )}
+                          </Pressable>
+                        </View>
+                      );
+                    })}
                   </View>
                 ) : null}
               </>
@@ -1361,6 +1618,90 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginTop: 4,
   },
+  bagLoading: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    marginTop: 24,
+  },
+  bagLoadingText: {
+    color: "#64746a",
+    fontSize: 14,
+  },
+  bagDiscList: {
+    gap: 12,
+    marginTop: 24,
+  },
+  bagDiscCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 12,
+    borderRadius: 16,
+    backgroundColor: "#fff",
+  },
+  bagDiscImage: {
+    width: 72,
+    height: 72,
+    borderRadius: 12,
+    backgroundColor: "#e5ebe4",
+  },
+  bagDiscImagePlaceholder: {
+    width: 72,
+    height: 72,
+    borderRadius: 12,
+    backgroundColor: "#e5ebe4",
+  },
+  bagDiscContent: {
+    flex: 1,
+  },
+  bagFlightNumberRow: {
+    flexDirection: "row",
+    gap: 4,
+    marginTop: 6,
+  },
+  bagFlightNumber: {
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#e7f0e9",
+  },
+  bagFlightNumberText: {
+    color: "#1f6b49",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  deleteDiscButton: {
+    minHeight: 40,
+    minWidth: 56,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: "#fff1ef",
+  },
+  deleteDiscButtonText: {
+    color: "#a33a32",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  bagDiscName: {
+    color: "#183528",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  bagDiscDetails: {
+    color: "#64746a",
+    fontSize: 13,
+    marginTop: 4,
+  },
+  bagDiscNotes: {
+    color: "#52645a",
+    fontSize: 13,
+    marginTop: 6,
+  },
   attribution: {
     color: "#64746a",
     fontSize: 12,
@@ -1478,6 +1819,10 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     backgroundColor: "#1f6b49",
     paddingHorizontal: 20,
+  },
+  permissionButton: {
+    flex: 0,
+    alignSelf: "stretch",
   },
   primaryButtonText: {
     color: "#fff",

@@ -57,15 +57,17 @@ search preparation screen, where recognized words start unselected and
 selecting them builds the query. Edit it before submitting to the TryDiscs
 lookup API. Select a result to review and edit its brand, name, type, and
 flight numbers, then tap **Add to bag**. Other catalog data is retained without
-being shown in the form. The app returns home with a save confirmation. The
-photo stays on the device; this flow sends disc details, not the image, to the
-API.
+being shown in the form. The app copies the captured photo into its private
+document storage and saves its path and disc details locally with AsyncStorage.
+The inventory and photos remain available after app restarts, but are not
+synced across devices and are removed if the app is uninstalled. The Python
+server is used for catalog lookup only; the bag is stored on the device.
+Use **Delete** on a bag card to remove that disc and its saved photo after
+confirmation.
 
-The current app uses a fixed `local-user` identity because authentication is
-not implemented, and the API stores bags in memory. Camera and OCR use native
-code, so rebuild and reinstall your development build after changing native
-dependencies; JavaScript-only changes can be picked up by the development
-server.
+AsyncStorage and FileSystem include native code, so rebuild and reinstall your
+development build after installing these packages. JavaScript-only changes can
+be picked up by the development server.
 
 ## TryDiscs lookup during local development
 

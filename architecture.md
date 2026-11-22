@@ -17,7 +17,7 @@ This system is a mobile-first application for managing a single user's disc golf
 
 Most important scenario: add a disc to the bag (FR-001; Scenario-001).
 
-1. The user opens the app and the home bag view loads the bag for the active user.
+1. The app loads the locally stored bag and displays it on the home screen.
 2. The user taps the add-disc control from the home view.
 3. The app launches the photo capture flow and the user takes a picture of a disc.
 4. The app runs on-device OCR and displays the raw recognized text as selectable words, initially unselected and in the original order.
@@ -26,7 +26,7 @@ Most important scenario: add a disc to the bag (FR-001; Scenario-001).
 7. The user selects the matching disc record.
 8. The app loads the selected record into the disc form editor so the user can review and edit the full disc information.
 9. The user confirms the final disc data and taps the add-to-bag action.
-10. The bag repository writes the disc to the user’s bag and the app returns to the home bag view.
+10. The app copies the captured image into its private documents directory, stores the image path and disc record locally, and returns to the home bag view.
 
 This ordering preserves the acceptance-criterion flow: photo -> OCR-derived text -> user confirms/edits the search terms -> TryDiscs match list -> full record edit -> add to bag -> home screen return.
 
@@ -34,12 +34,12 @@ This ordering preserves the acceptance-criterion flow: photo -> OCR-derived text
 
 | Decision | Reason |
 |---|---|
-| Single bag per authenticated user | The Domain Model states that each user has a bag and the home screen must display that bag (Domain Model; FR-003). This is a design decision enforced by the user session and bag identity module: the bag repository is keyed by the active user. |
+| Single local bag per app installation | The Domain Model describes one bag per user, but no authentication provider is specified. The prototype therefore keeps one device-local bag without introducing account or multi-user behavior. |
 | The add-disc flow is interactive and user-confirmed at each critical step | Scenario-001 requires the user to confirm the brand/name, select the matching TryDiscs record, and confirm the final disc data before the disc is added. This is enforced by the Photo capture and OCR intake, TryDiscs catalog lookup, and Disc form editor modules. |
 | OCR provides search suggestions, not automatic brand/model identification | Scenario-001 places user confirmation before catalog results. Selectable OCR words and an editable query preserve that confirmation without guessing which OCR tokens are brand or model. |
 | The TryDiscs API key stays server-side and attribution accompanies displayed catalog data | The TryDiscs API documentation requires a key and attribution; this is an external API constraint, not a requirement stated in spec.md. The server-side catalog lookup uses the key and the client presents the returned attribution with results. |
 | Disc updates are done in-place on a single disc record rather than through a separate review queue | Scenario-002 says the user clicks a disc from the bag list and is presented with all fields as editable inputs; the update ends by returning to the home screen. The form editor is therefore the single update path, with the bag repository as the write point. |
-| The app stores bag data locally on the device | The spec defines the user, bag, and disc model but does not define a server-side persistence layer or multi-device sync. This is a preference, not a requirement: it is the simplest design that satisfies the local mobile app behavior without inventing a backend. |
+| The app stores bag data locally on the device | The spec does not define server-side persistence or multi-device sync. AsyncStorage stores the small bag record list, while FileSystem stores the captured images; the catalog API remains server-side so its API key is not exposed in the client. |
 | Catalog matching is a user-assisted lookup, not an automatic record write | Scenario-001 explicitly requires a list of possible matches and requires the user to select the matching disc before final confirmation. This is a requirement, not a preference, and it is enforced in the TryDiscs catalog lookup and Disc form editor modules. |
 | The home view is the system’s center of navigation | FR-003 says the home screen displays the bag, and Scenario-002 returns the user there after editing. The Home bag view therefore acts as the primary navigation hub, and the add/edit flows begin and end there. |
 | No multi-bag, shared-bag, or cross-user sync model is designed | The Domain Model defines one bag per user and all acceptance criteria assume a single logged-in user working on their own collection. This is a requirement limit, not a product expansion: the design intentionally omits shared collections and sync. |
