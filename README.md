@@ -52,9 +52,47 @@ the `development` profile. The iOS Simulator has its own profile because it
 needs a simulator-specific build.
 
 The app's **+ add disc** button opens the camera so you can take and preview a
-disc photo. Tapping **Done** runs on-device text recognition and shows the
-recognized text on the home screen. Camera and OCR use native code, so rebuild
-and reinstall your development build after installing this update.
+disc photo. Tapping **Done** runs on-device text recognition and opens the
+search preparation screen, where you can select recognized words, edit the
+query, see the captured photo, and submit it to the TryDiscs lookup API. Use
+**Cancel** to return to the home screen. Camera and OCR use native code, so
+rebuild and reinstall your development build after installing this update.
+
+## TryDiscs lookup during local development
+
+The Python API server must be reachable from the device and needs a TryDiscs API
+key. The server reads it from `TRYDISCS_API_KEY` (no hyphens). Uvicorn does not
+automatically load Expo's `.env.local`, so either export the variable directly
+in the server terminal:
+
+```sh
+export TRYDISCS_API_KEY="your-issued-trydiscs-key"
+python3 -m uvicorn server.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Or put `TRYDISCS_API_KEY="your-issued-trydiscs-key"` in the ignored
+`.env.local` file, then load it into the server terminal before starting
+Uvicorn:
+
+```sh
+set -a
+. ./.env.local
+set +a
+python3 -m uvicorn server.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+In another terminal, set the API base URL to the Mac's local network address
+and start Expo:
+
+```sh
+EXPO_PUBLIC_API_BASE_URL="http://192.168.0.18:8000" npm start
+```
+
+Replace `192.168.0.18` with the current local network address of the computer
+running Uvicorn. `127.0.0.1` is not reachable from a physical phone, and port
+`8081` is commonly used by the Expo development server rather than this API.
+Keep the TryDiscs key only in the server environment; do not put it in the Expo
+app or commit it.
 
 Before publishing to an app store, replace the example iOS bundle identifier
 and Android package name in `app.json` with identifiers you own.
